@@ -14,6 +14,136 @@ def get_houses():
     houses = House.query.all()
     return jsonify([{'house_id': uuid.UUID(bytes=house.house_id), 'street': house.street} for house in houses])
 
+# query with /houses?house_id=<id>
+@bp.route('/houses', methods=['DELETE'])
+def delete_house():
+    house_id_str = request.args.get('house_id')  # The ID as a string
+
+    if not house_id_str:
+        return jsonify({'message': 'house_id is required.'}), 400
+
+    try:
+        # Convert the string representation of the UUID back to binary
+        house_id = uuid.UUID(house_id_str).bytes
+    except ValueError:
+        return jsonify({'message': 'Invalid house_id format.'}), 400
+
+    # Check if the house exists
+    house = House.query.filter_by(house_id=house_id).first()
+    if not house:
+        return jsonify({'message': 'House not found.'}), 404
+
+    # Remove the corresponding entries in the rentals or for_sale table
+    Rental.query.filter_by(house_id=house_id).delete(synchronize_session=False)
+    ForSale.query.filter_by(house_id=house_id).delete(synchronize_session=False)
+
+    # Finally, delete the house itself
+    db.session.delete(house)
+    db.session.commit()
+
+    return jsonify({'message': 'House deleted successfully!'}), 200
+
+
+# must send a JSON Object when querying. Must include additional field "type" which is either "rentals" or "for_sale".
+# if adding a rental, make sure to include rental specific attributes like available_start and available_end
+# include a price field to represent either the monthly price or buying price
+@bp.route('/houses', methods=['POST'])
+def add_house():
+    data = request.get_json()
+
+    # Ensure that the following attributes are included (not null):
+    # type, street, city, user_id, zipcode, country, description, HOA, and name
+    if ('type' not in data or 'street' not in data or 'city' not in data or 'user_id' not in data or 'zipcode' not in data
+            or 'country' not in data or 'description' not in data or 'HOA' not in data or 'name' not in data):
+        return jsonify({'message': 'Missing required fields or type.'}), 400
+
+    # Generate a unique house_id
+    house_id = uuid.uuid4().bytes  # Generate a binary UUID
+    try:
+        user_id_binary = uuid.UUID(data['user_id']).bytes
+    except ValueError:
+        return jsonify({'message': 'Invalid user_id format.'}), 400
+
+    # return jsonify({'message': 'Invalid user_id format.'}), 400
+
+    # Check if user_id exists in users table
+    if not User.query.filter_by(user_id=user_id_binary).first():
+        return jsonify({'message': 'Invalid user_id. User does not exist.'}), 400
+
+    # Create a new House instance
+    new_house = House(
+        house_id=house_id,
+        street=data.get('street'),
+        floor=data.get('floor'),
+        zipcode=data.get('zipcode'),
+        unit_num=data.get('unit_num'),
+        country=data.get('country'),
+        state=data.get('state'),
+        city=data.get('city'),
+        user_id=user_id_binary,
+        appliances=data.get('appliances'),
+        bathrooms=data.get('bathrooms'),
+        bathroom_details=data.get('bathroom_details'),
+        bedrooms=data.get('bedrooms'),
+        bedroom_details=data.get('bedroom_details'),
+        community=data.get('community'),
+        condition=data.get('condition'),
+        cooling=data.get('cooling'),
+        laundry=data.get('laundry'),
+        description=data.get('description'),
+        exterior_features=data.get('exterior_features'),
+        garage=data.get('garage'),
+        heating=data.get('heating'),
+        HOA=data.get('HOA', 0),  # Default to 0 if not provided
+        photos=data.get('photos'),
+        living_room=data.get('living_room'),
+        square_feet=data.get('square_feet'),
+        material_info=data.get('material_info'),
+        name=data.get('name'),
+        num_views=data.get('num_views', 0),  # Default to 0 if not provided
+        notable_dates=data.get('notable_dates'),
+        amenities=data.get('amenities'),
+        interior_features=data.get('interior_features'),
+        property_info=data.get('property_info'),
+        owner_email=data.get('owner_email'),
+        owner_first=data.get('owner_first'),
+        owner_last=data.get('owner_last'),
+        owner_phone=data.get('owner_phone'),
+        parking_spots=data.get('parking_spots', 0),  # Default to 0 if not provided
+        pet_policy=data.get('pet_policy'),
+        property_type=data.get('property_type'),
+        publish_status=data.get('publish_status'),
+        rating=data.get('rating', 0),  # Default to 0 if not provided
+        terms_conditions=data.get('terms_conditions'),
+        year_built=data.get('year_built'),
+        create_date=data.get('create_date'),  # Handle date format
+        modified_date=data.get('modified_date'),  # Handle date format
+        pets=data.get('pets'),
+        target_move_date=data.get('target_move_date')  # Handle date format
+    )
+
+    # Add house to the appropriate table based on the type
+    if data['type'] == 'rentals':
+        new_rental = Rental(
+            house_id=house_id,
+            available_start=data.get('available_start'),  # Optional field
+            available_end=data.get('available_end'),  # Optional field
+            monthly_price=data['price']  # Required field
+        )
+        db.session.add(new_rental)
+
+    elif data['type'] == 'for_sale':
+        new_sale = ForSale(
+            house_id=house_id,
+            price=data['price']  # Required field
+        )
+        db.session.add(new_sale)
+
+    db.session.add(new_house)
+    db.session.commit()
+
+    return jsonify({'message': 'House added successfully!', 'house_id': str(uuid.UUID(bytes=house_id))}), 201
+
 
 @bp.route('/houses/search', methods=['GET'])
 def search_houses():
