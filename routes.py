@@ -68,6 +68,8 @@ def search_houses():
         'street': house.street,
         'city': house.city,
         'property_type': house.property_type,
+        'price': (house.rentals.monthly_price if house_type=='rentals' else house.for_sale.price),
+        'image': house.photos
         # Add other fields as needed
     } for house in houses]), 200
 
@@ -76,4 +78,4 @@ def search_houses():
 # city should be space separated by %20 (i.e. Los Angeles --> Los%20Angeles
 # always assuming that we are searching for either a rental or a for sale property (i.e. must be specified)
 # price min and max should be integers. Refers to monthly rent for rentals and buying price for sale
-# property type specifies town house
+# property type specifies town house, mansion, etc...
