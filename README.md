@@ -1,7 +1,11 @@
 # AMLAH Backend Respitory
 
-First, update the .env file to contain your personal database URI. Assuming you are the root user, replace the password field and ensure that you are running SQL on port 3306
+First, create a .env file ("touch .env") and paste the following into it:
 
-Then, install the requirements using "pip install -r requirements.txt"
+`SQLALCHEMY_DATABASE_URI='mysql+pymysql://<user>:<password>@localhost:3306/amlahbackend'`
 
-Finally, depending on the version of python you have, run "python app.py" or "python3 app.py"
+This is your personal database URI and is specific to your computer. You must update the `<user>` and `<password>` fields. Unless you changed it, the user field should be "root" and your password is whatever you entered when you downloaded MySQL.
+
+Then, install the requirements using `pip install -r requirements.txt`
+
+Finally, depending on the version of python you have, run `python app.py` or `python3 app.py`
