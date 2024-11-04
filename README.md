@@ -1,6 +1,6 @@
 # AMLAH Backend Respitory
 
-First, create a .env file ("touch .env") and paste the following into it:
+First, create a .env file by running `touch .env` and paste the following into it:
 
 `SQLALCHEMY_DATABASE_URI='mysql+pymysql://<user>:<password>@localhost:3306/amlahbackend'`
 
