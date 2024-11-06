@@ -7,12 +7,18 @@ bp = Blueprint('app', __name__)
 @bp.route('/users', methods=['GET'])
 def get_users():
     users = User.query.all()
-    return jsonify([{'user_id': uuid.UUID(bytes=user.user_id), 'email': user.email} for user in users])
+    return jsonify({
+        'success': True,
+        'message': "Returning all users UID and email",
+        'data': [{'user_id': uuid.UUID(bytes=user.user_id), 'email': user.email} for user in users]}), 200
 
 @bp.route('/houses', methods=['GET'])
 def get_houses():
     houses = House.query.all()
-    return jsonify([{'house_id': uuid.UUID(bytes=house.house_id), 'street': house.street} for house in houses])
+    return jsonify({
+        'success': True,
+        'message': "Returning all houses (rentals and for sale)",
+        'data': [{'house_id': uuid.UUID(bytes=house.house_id), 'street': house.street} for house in houses]}), 200
 
 # query with /houses?house_id=<id>
 @bp.route('/houses', methods=['DELETE'])
@@ -20,18 +26,27 @@ def delete_house():
     house_id_str = request.args.get('house_id')  # The ID as a string
 
     if not house_id_str:
-        return jsonify({'message': 'house_id is required.'}), 400
+        return jsonify({
+            'success': False,
+            'message': 'house_id is required.',
+            'data': None}), 400
 
     try:
         # Convert the string representation of the UUID back to binary
         house_id = uuid.UUID(house_id_str).bytes
     except ValueError:
-        return jsonify({'message': 'Invalid house_id format.'}), 400
+        return jsonify({
+            'success': False,
+            'message': 'Invalid house_id format.',
+            'data': None}), 400
 
     # Check if the house exists
     house = House.query.filter_by(house_id=house_id).first()
     if not house:
-        return jsonify({'message': 'House not found.'}), 404
+        return jsonify({
+            'success': False,
+            'message': 'House not found.',
+            'data': None}), 404
 
     # Remove the corresponding entries in the rentals or for_sale table
     Rental.query.filter_by(house_id=house_id).delete(synchronize_session=False)
@@ -41,12 +56,16 @@ def delete_house():
     db.session.delete(house)
     db.session.commit()
 
-    return jsonify({'message': 'House deleted successfully!'}), 200
+    return jsonify({
+        'success': True,
+        'message': 'House deleted successfully!',
+        'data': None}), 200
 
 
 # must send a JSON Object when querying. Must include additional field "type" which is either "rentals" or "for_sale".
 # if adding a rental, make sure to include rental specific attributes like available_start and available_end
-# include a price field to represent either the monthly price or buying price
+# include a price field to represent either the monthly price or buying price. Returns a JSON object with success, message,
+# and data field. If success is True, data will contain the house_id of the newly added house
 @bp.route('/houses', methods=['POST'])
 def add_house():
     data = request.get_json()
@@ -55,20 +74,28 @@ def add_house():
     # type, street, city, user_id, zipcode, country, description, HOA, and name
     if ('type' not in data or 'street' not in data or 'city' not in data or 'user_id' not in data or 'zipcode' not in data
             or 'country' not in data or 'description' not in data or 'HOA' not in data or 'name' not in data):
-        return jsonify({'message': 'Missing required fields or type.'}), 400
+        return jsonify({
+            'success': False,
+            'message': 'Missing required fields or type.',
+            'data': None}), 400
 
     # Generate a unique house_id
     house_id = uuid.uuid4().bytes  # Generate a binary UUID
     try:
         user_id_binary = uuid.UUID(data['user_id']).bytes
     except ValueError:
-        return jsonify({'message': 'Invalid user_id format.'}), 400
+        return jsonify({
+            'success': False,
+            'message': 'Invalid user_id format.',
+            'data': None}), 400
 
-    # return jsonify({'message': 'Invalid user_id format.'}), 400
 
     # Check if user_id exists in users table
     if not User.query.filter_by(user_id=user_id_binary).first():
-        return jsonify({'message': 'Invalid user_id. User does not exist.'}), 400
+        return jsonify({
+            'success': False,
+            'message': 'Invalid user_id. User does not exist.',
+            'data': None}), 400
 
     # Create a new House instance
     new_house = House(
@@ -142,7 +169,10 @@ def add_house():
     db.session.add(new_house)
     db.session.commit()
 
-    return jsonify({'message': 'House added successfully!', 'house_id': str(uuid.UUID(bytes=house_id))}), 201
+    return jsonify({
+        'success': True,
+        'message': 'House added successfully!',
+        'data': str(uuid.UUID(bytes=house_id))}), 201
 
 
 @bp.route('/houses/search', methods=['GET'])
@@ -156,7 +186,9 @@ def search_houses():
 
     # Validate house_type input
     if house_type not in ['rentals', 'for_sale']:
-        return jsonify({'message': 'Invalid house type. Choose either "rentals" or "for_sale".'}), 400
+        return jsonify({
+            'success': False,
+            'message': 'Invalid house type. Choose either "rentals" or "for_sale".'}), 400
 
     # Initialize query
     query = House.query
@@ -190,18 +222,24 @@ def search_houses():
 
     # Check if houses are found
     if not houses:
-        return jsonify({'message': 'No houses found matching the criteria.'}), 404
+        return jsonify({
+            'success': True,
+            'message': 'No houses found matching the criteria.',
+            'data': []}), 200
 
     # Return a list of houses
-    return jsonify([{
-        'house_id': str(uuid.UUID(bytes=house.house_id)),
-        'street': house.street,
-        'city': house.city,
-        'property_type': house.property_type,
-        'price': (house.rentals.monthly_price if house_type=='rentals' else house.for_sale.price),
-        'image': house.photos
-        # Add other fields as needed
-    } for house in houses]), 200
+    return jsonify({
+        'success': True,
+        'message': "Found houses matching the criteria",
+        'data': [{
+            'house_id': str(uuid.UUID(bytes=house.house_id)),
+            'street': house.street,
+            'city': house.city,
+            'property_type': house.property_type,
+            'price': (house.rentals.monthly_price if house_type=='rentals' else house.for_sale.price),
+            'image': house.photos
+        } for house in houses]
+    }), 200
 
 # URL should be of the type:
 # /houses/search?type=[rentals/for_sale]&property_type=[type_of_home]&city=[city_name]&price_min=[min]&price_max=[max]
