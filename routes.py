@@ -525,16 +525,16 @@ def search_houses():
     price_max = request.args.get('price_max', type=int)  # Maximum price
 
     # Validate house_type input
-    if house_type not in ['rentals', 'for_sale']:
+    if house_type not in ['rental', 'for_sale']:
         return jsonify({
             'success': False,
-            'message': 'Invalid house type. Choose either "rentals" or "for_sale".'}), 400
+            'message': "Invalid house type. Choose either 'rental' or 'for_sale'."}), 400
 
     # Initialize query
     query = House.query
 
     # Apply filters based on the type of house
-    if house_type == 'rentals':
+    if house_type == 'rental':
         query = query.join(Rental)
         # Apply filters if provided
         if price_min is not None:
@@ -567,18 +567,34 @@ def search_houses():
             'message': 'No houses found matching the criteria.',
             'data': []}), 200
 
-    # Return a list of houses
+    # Transform each house object into a dictionary and return the attributes
+    house_data_list = []
+    for house in houses:
+        house_dict = house.__dict__.copy()
+        house_dict.pop('_sa_instance_state', None)  # Remove SQLAlchemy-specific state
+
+        # Convert house_id to a string
+        house_dict['house_id'] = str(uuid.UUID(bytes=house_dict['house_id']))
+        house_dict['user_id'] = str(uuid.UUID(bytes=house_dict['user_id']))
+
+        # If the house is for rent, include rental attributes directly
+        if house_type == 'rental':
+            house_dict['monthly_price'] = house.rentals.monthly_price
+            house_dict['available_start'] = house.rentals.available_start
+            house_dict['available_end'] = house.rentals.available_end
+
+        # If the house is for sale, include sale attributes directly
+        elif house_type == 'for_sale':
+            house_dict['price'] = house.for_sale.price
+
+        # Append the modified house dictionary to the list
+        house_data_list.append(house_dict)
+
+    # Return the list of houses
     return jsonify({
         'success': True,
         'message': "Found houses matching the criteria",
-        'data': [{
-            'house_id': str(uuid.UUID(bytes=house.house_id)),
-            'street': house.street,
-            'city': house.city,
-            'property_type': house.property_type,
-            'price': (house.rentals.monthly_price if house_type=='rentals' else house.for_sale.price),
-            'image': house.photos
-        } for house in houses]
+        'data': house_data_list
     }), 200
 
 # URL should be of the type:
