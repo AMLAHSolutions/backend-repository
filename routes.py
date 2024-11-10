@@ -9,10 +9,12 @@ GET:
     /users/agents: returns all agents
     /users/clients: returns all clients
     /users: returns all users
-    /users/id?=<id>: returns user specified by user_id
+    /users/id?user_id=<id>: returns user specified by user_id
     /houses: returns all houses
+    /houses/id?house_id=<id>: returns information on the house based on the passed id
     /houses/search?: returns houses based on the passed parameters:
         /houses/search?type=[rentals/for_sale]&property_type=[type_of_home]&city=[city_name]&price_min=[min]&price_max=[max]
+    /users/saved?user_id=<id>: returns all saved houses by the specified user
 POST:
     /houses: create a house based on the passed JSON object
         must specify "type" which can be "rentals" or "for_sale" in the passed JSON
@@ -28,6 +30,82 @@ DELETE:
 # user authentication can be tied back to the user_id and that's how we can query
 # when a user creates an account/user logs in, we'll have some session management keeping track
 # need to be careful that the UUID is stored within the session
+
+@bp.route('/users/saved', methods=['GET', 'POST', 'DELETE'])
+def saved_houses():
+    user_id_str = request.args.get('user_id')
+    try:
+        user_id = uuid.UUID(user_id_str).bytes
+    except ValueError:
+        return jsonify({
+            'success': False,
+            'message': 'Invalid user_id format.',
+            'data': None}), 400
+
+    if request.method=='GET':
+
+        saved = Saved.query.filter_by(user_id=user_id)
+        saved_data = []
+        for house in saved:
+            saved_data.append({
+                'house_id': str(uuid.UUID(bytes=house.house_id)),
+                'name': house.name,
+                'date_created': house.date_created,
+                'date_modified': house.date_modified,
+                'notes': house.notes,
+                'tag': house.tag
+            })
+        return jsonify({
+            'success': True,
+            'message': "Returned houses",
+            'data': saved_data
+        }), 200
+
+    @bp.route('/houses/id', methods=['GET'])
+    def house_by_id():
+        house_id_str = request.args.get('house_id')
+        try:
+            house_id = uuid.UUID(house_id_str).bytes
+        except ValueError:
+            return jsonify({
+                'success': False,
+                'message': 'Invalid house_id format.',
+                'data': None}), 400
+
+        houses = House.query.filter_by(house_id=house_id)
+
+        if not houses:
+            return jsonify({
+                'success': False,
+                'message': 'House not found.',
+                'data': None}), 404
+
+        # Convert house_id to a string
+        for house in houses:
+            house_dict = house.__dict__.copy()
+            house_dict.pop('_sa_instance_state', None)  # Remove SQLAlchemy-specific state
+            house_dict['house_id'] = house_id_str
+            house_dict['user_id'] = str(uuid.UUID(bytes=house_dict['user_id']))
+
+            rental = Rental.query.filter_by(house_id=house_id).first()
+            for_sale = ForSale.query.filter_by(house_id=house_id).first()
+
+            if rental:
+                house_dict['monthly_price'] = rental.monthly_price
+                house_dict['available_start'] = rental.available_start
+                house_dict['available_end'] = rental.available_end
+
+            if for_sale:
+                house_dict['price'] = for_sale.price
+
+        return jsonify({
+            'success': True,
+            'message': 'House data found',
+            'data': house_dict
+        }), 200
+    # if request.method=='POST':
+    #
+    # if request.method=='DELETE':
 
 # retrieves all agents
 @bp.route('/users/agents', methods=['GET'])
@@ -114,7 +192,7 @@ def get_clients():
 # only contains user_id
 # query with /users/id?=<id>
 @bp.route('/users/id', methods=['GET'])
-def get_user():
+def user_by_id():
     user_id_str = request.args.get('user_id')
     if not user_id_str:
         return jsonify({
@@ -419,7 +497,7 @@ def add_house():
             'data': None}), 400
 
     # Generate a unique house_id
-    house_id = uuid.uuid4().bytes  # Generate a binary UUID
+    house_id = uuid.uuid4().bytes
     try:
         user_id_binary = uuid.UUID(data['user_id']).bytes
     except ValueError:
@@ -525,18 +603,16 @@ def search_houses():
     price_max = request.args.get('price_max', type=int)  # Maximum price
 
     # Validate house_type input
-    if house_type not in ['rental', 'for_sale']:
+    if house_type not in ['rental', 'for_sale'] and house_type:
         return jsonify({
             'success': False,
             'message': "Invalid house type. Choose either 'rental' or 'for_sale'."}), 400
 
-    # Initialize query
     query = House.query
 
     # Apply filters based on the type of house
     if house_type == 'rental':
         query = query.join(Rental)
-        # Apply filters if provided
         if price_min is not None:
             query = query.filter(Rental.monthly_price >= price_min)
         if price_max is not None:
@@ -544,20 +620,17 @@ def search_houses():
 
     elif house_type == 'for_sale':
         query = query.join(ForSale)
-        # Apply filters if provided
         if price_min is not None:
             query = query.filter(ForSale.price >= price_min)
         if price_max is not None:
             query = query.filter(ForSale.price <= price_max)
 
-    # Check and apply additional filters if provided
     if property_type:
         query = query.filter(House.property_type == property_type)
 
     if city:
         query = query.filter(House.city == city)
 
-    # Execute the query and fetch results
     houses = query.all()
 
     # Check if houses are found
@@ -583,11 +656,9 @@ def search_houses():
             house_dict['available_start'] = house.rentals.available_start
             house_dict['available_end'] = house.rentals.available_end
 
-        # If the house is for sale, include sale attributes directly
-        elif house_type == 'for_sale':
+        if house_type == 'for_sale':
             house_dict['price'] = house.for_sale.price
 
-        # Append the modified house dictionary to the list
         house_data_list.append(house_dict)
 
     # Return the list of houses
