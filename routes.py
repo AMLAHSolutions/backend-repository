@@ -20,6 +20,7 @@ POST:
         must specify "user_type" which can be "client" or "agent" in the passed JSON
 DELETE:
     /houses?house_id=<id>: deletes the house based on passed query parameter
+    /user?user_id=<id>: deletes the user based on passed query parameter
 """
 
 # GET for users
