@@ -1,8 +1,207 @@
 from flask import Blueprint, jsonify, request
-from models import db, User, House, Rental, ForSale
+from models import *
 import uuid
 
 bp = Blueprint('app', __name__)
+
+"""
+GET:
+    /users/agents: returns all agents
+    /users/clients: returns all clients
+    /users: returns all users
+    /users/id?=<id>: returns user specified by user_id
+    /houses: returns all houses
+    /houses/search?: returns houses based on the passed parameters:
+        /houses/search?type=[rentals/for_sale]&property_type=[type_of_home]&city=[city_name]&price_min=[min]&price_max=[max]
+POST:
+    /houses: create a house based on the passed JSON object
+        must specify "type" which can be "rentals" or "for_sale" in the passed JSON
+    /users: create a user based on the passed JSON object
+        must specify "user_type" which can be "client" or "agent" in the passed JSON
+DELETE:
+    /houses?house_id=<id>: deletes the house based on passed query parameter
+"""
+
+# GET for users
+# should be tied into authentication
+# user authentication can be tied back to the user_id and that's how we can query
+# when a user creates an account/user logs in, we'll have some session management keeping track
+# need to be careful that the UUID is stored within the session
+
+# retrieves all agents
+@bp.route('/users/agents', methods=['GET'])
+def get_agents():
+    agents = Agent.query.all()
+    agent_data = []
+    for agent in agents:
+        user_id = agent.user_id
+        user = User.query.filter_by(user_id=user_id).first()
+        agent_data.append({
+            'user_id': str(uuid.UUID(bytes=user_id)),
+            'email': user.email,
+            'about_me': user.about_me,
+            'address': user.address,
+            'birthday': user.birthday,
+            'country': user.country,
+            'first_name': user.first_name,
+            'last_name': user.last_name,
+            'gender': user.gender,
+            'language': user.language,
+            'logout_event': user.logout_event,
+            'logout_date': user.logout_date,
+            'phone': user.phone,
+            'profile_picture': user.profile_picture,
+            'rating': user.rating,
+            'search_price_min': user.search_price_min,
+            'search_price_max': user.search_price_max,
+            'search_city': user.search_city,
+            'property_type': user.property_type,
+            'search_status': user.search_status,
+            'search_text': user.search_text,
+            'company_name': agent.company_name,
+            'num_customers': agent.num_customers,
+            'num_properties': agent.num_properties,
+            'properties_rented': agent.properties_rented,
+            "properties_sold": agent.properties_sold
+        })
+    return jsonify({
+        'success': True,
+        'data': agent_data
+    }), 200
+
+# retrieves all clients
+@bp.route('/users/clients', methods=['GET'])
+def get_clients():
+    clients = Client.query.all()
+    client_data = []
+    for client in clients:
+        user_id = client.user_id
+        user = User.query.filter_by(user_id=user_id).first()
+        client_data.append({
+            'user_id': str(uuid.UUID(bytes=user_id)),
+            'email': user.email,
+            'about_me': user.about_me,
+            'address': user.address,
+            'birthday': user.birthday,
+            'country': user.country,
+            'first_name': user.first_name,
+            'last_name': user.last_name,
+            'gender': user.gender,
+            'language': user.language,
+            'logout_event': user.logout_event,
+            'logout_date': user.logout_date,
+            'phone': user.phone,
+            'profile_picture': user.profile_picture,
+            'rating': user.rating,
+            'search_price_min': user.search_price_min,
+            'search_price_max': user.search_price_max,
+            'search_city': user.search_city,
+            'property_type': user.property_type,
+            'search_status': user.search_status,
+            'search_text': user.search_text
+        })
+    return jsonify({
+        'success': True,
+        'data': client_data
+    }), 200
+
+
+
+
+# retrieves all user information based on user_id. Additionally returns information from the client or agent tables.
+# Assumes that users cannot be both agents and users but will function properly as of right now since the client table
+# only contains user_id
+# query with /users/id?=<id>
+@bp.route('/users/id', methods=['GET'])
+def get_user():
+    user_id_str = request.args.get('user_id')
+    if not user_id_str:
+        return jsonify({
+            'success': False,
+            'message': 'user_id is required.',
+            'data': None}), 400
+
+    try:
+        # Convert the string representation of the UUID back to binary
+        user_id = uuid.UUID(user_id_str).bytes
+    except ValueError:
+        return jsonify({
+            'success': False,
+            'message': 'Invalid user_id format.',
+            'data': None}), 400
+
+    user = User.query.filter_by(user_id=user_id).first()
+    if not user:
+        return jsonify({
+            'success': False,
+            'message': 'User not found.',
+            'data': None}), 404
+
+    user_data = {
+        'user_id': str(uuid.UUID(bytes=user.user_id)),
+        'email': user.email,
+        'about_me': user.about_me,
+        'address': user.address,
+        'birthday': user.birthday,
+        'country': user.country,
+        'first_name': user.first_name,
+        'last_name': user.last_name,
+        'gender': user.gender,
+        'language': user.language,
+        'logout_event': user.logout_event,
+        'logout_date': user.logout_date,
+        'phone': user.phone,
+        'profile_picture': user.profile_picture,
+        'rating': user.rating,
+        'search_price_min': user.search_price_min,
+        'search_price_max': user.search_price_max,
+        'search_city': user.search_city,
+        'property_type': user.property_type,
+        'search_status': user.search_status,
+        'search_text': user.search_text
+    }
+
+
+    # Check in the agents table
+    agent = Agent.query.filter_by(user_id=user.user_id).first()
+    if agent:
+        agent_data = {
+            'user_id': str(uuid.UUID(bytes=agent.user_id)),
+            'company_name': agent.company_name,
+            'num_customers': agent.num_customers,
+            'num_properties': agent.num_properties,
+            'properties_rented': agent.properties_rented,
+            'properties_sold': agent.properties_sold,
+        }
+        return jsonify({
+            'success': True,
+            'message': 'Agent data found',
+            'data': {
+                'user': user_data,
+                'agent': agent_data
+            }
+        }), 200
+
+
+    # Check in the clients table
+    client = Client.query.filter_by(user_id=user.user_id).first()
+    if client:
+        return jsonify({
+            'success': True,
+            'message': 'Client data found',
+            'data': {
+                'user': user_data,
+            }
+        }), 200
+
+    # If user exists but no corresponding client or agent was found
+    return jsonify({
+        'success': False,
+        'message': 'No associated client or agent found for this user.',
+        'data': None
+    }), 404
+
+
 
 @bp.route('/users', methods=['GET'])
 def get_users():
@@ -61,6 +260,145 @@ def delete_house():
         'message': 'House deleted successfully!',
         'data': None}), 200
 
+# delete users based on query parameter user_id
+@bp.route('/users', methods=['DELETE'])
+def delete_user():
+    user_id_str = request.args.get('user_id')  # The ID as a string
+
+    if not user_id_str:
+        return jsonify({
+            'success': False,
+            'message': 'user_id is required.',
+            'data': None
+        }), 400
+
+    try:
+        # Convert the string representation of the UUID back to binary
+        user_id = uuid.UUID(user_id_str).bytes
+    except ValueError:
+        return jsonify({
+            'success': False,
+            'message': 'Invalid user_id format.',
+            'data': None
+        }), 400
+
+    # Check if the user exists
+    user = User.query.filter_by(user_id=user_id).first()
+    if not user:
+        return jsonify({
+            'success': False,
+            'message': 'User not found.',
+            'data': None
+        }), 404
+
+    # Remove related entries in the agent or client table if exists
+    # Delete from the agent table if the user is an agent
+    agent = Agent.query.filter_by(user_id=user_id).first()
+    if agent:
+        db.session.delete(agent)
+
+    # Delete from the client table if the user is a client
+    client = Client.query.filter_by(user_id=user_id).first()
+    if client:
+        db.session.delete(client)
+
+    # Finally, delete the user itself
+    db.session.delete(user)
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'message': 'User deleted successfully!',
+        'data': None
+    }), 200
+
+# post for users. Pass in a json object with all relevant information. Must pass additional fields if creating an agent
+@bp.route('/users', methods=['POST'])
+def add_user():
+    data = request.get_json()
+
+    # Ensure that the following attributes are included (not null):
+    if ('email' not in data or 'first_name' not in data or 'last_name' not in data or
+        'user_type' not in data):
+        return jsonify({
+            'success': False,
+            'message': 'Missing required fields.',
+            'data': None
+        }), 400
+
+    # Generate a unique user_id
+    user_id = uuid.uuid4().bytes  # Generate a binary UUID
+
+    # Check if the email is already taken
+    if User.query.filter_by(email=data['email']).first():
+        return jsonify({
+            'success': False,
+            'message': 'Email is already in use.',
+            'data': None
+        }), 400
+
+    # Create a new User instance
+    new_user = User(
+        user_id=user_id,
+        email=data['email'],
+        first_name=data.get('first_name'),
+        last_name=data.get('last_name'),
+        about_me=data.get('about_me'),
+        address=data.get('address'),
+        birthday=data.get('birthday'),
+        country=data.get('country'),
+        gender=data.get('gender'),
+        language=data.get('language'),
+        phone=data.get('phone'),
+        profile_picture=data.get('profile_picture'),
+        rating=data.get('rating'),
+        search_price_min=data.get('search_price_min'),
+        search_price_max=data.get('search_price_max'),
+        search_city=data.get('search_city'),
+        property_type=data.get('property_type'),
+        search_status=data.get('search_status'),
+        search_text=data.get('search_text')
+    )
+
+    # Add the new user to the database
+    db.session.add(new_user)
+
+    # If the user is an agent, create a corresponding Agent entry
+    if data['user_type'].lower() == 'agent':
+        new_agent = Agent(
+            user_id=user_id,
+            company_name=data.get('company_name'),  # Assuming this is coming in the request
+            num_customers=data.get('num_customers', 0),  # Default to 0 if not provided
+            num_properties=data.get('num_properties', 0),
+            properties_rented=data.get('properties_rented', 0),
+            properties_sold=data.get('properties_sold', 0)
+        )
+        db.session.add(new_agent)
+
+    # If the user is a client, create a corresponding Client entry
+    elif data['user_type'].lower() == 'client':
+        new_client = Client(
+            user_id=user_id
+            # Add any additional client-specific fields if necessary
+        )
+        db.session.add(new_client)
+
+    else:
+        # If user_type is not recognized
+        return jsonify({
+            'success': False,
+            'message': "Invalid user_type. Must be 'client' or 'agent'.",
+            'data': None
+        }), 400
+
+    # Commit the session to save all changes
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'message': 'User added successfully!',
+        'data': str(uuid.UUID(bytes=user_id))
+    }), 201
 
 # must send a JSON Object when querying. Must include additional field "type" which is either "rentals" or "for_sale".
 # if adding a rental, make sure to include rental specific attributes like available_start and available_end
@@ -175,6 +513,7 @@ def add_house():
         'data': str(uuid.UUID(bytes=house_id))}), 201
 
 
+# look into search APIs to use here for more complicated search queries
 @bp.route('/houses/search', methods=['GET'])
 def search_houses():
     # Get query parameters from the request
