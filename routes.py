@@ -603,7 +603,7 @@ def search_houses():
     price_max = request.args.get('price_max', type=int)  # Maximum price
 
     # Validate house_type input
-    if house_type not in ['rental', 'for_sale'] and house_type:
+    if house_type not in ['rental', 'for_sale']:
         return jsonify({
             'success': False,
             'message': "Invalid house type. Choose either 'rental' or 'for_sale'."}), 400
