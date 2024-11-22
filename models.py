@@ -45,8 +45,6 @@ class Agent(db.Model):
     properties_sold = db.Column(db.Integer)
 
     houses = db.relationship('House', backref='agent', lazy=True)
-    listing_availability = db.relationship('ListingAvailability', backref='agent', lazy=True)
-
 
 class House(db.Model):
     __tablename__ = 'houses'
@@ -109,11 +107,12 @@ class ListingAvailability(db.Model):
     __tablename__ = 'listing_availability'
 
     pattern_id = db.Column(db.BINARY(16), primary_key=True)
-    user_id = db.Column(db.BINARY(16), db.ForeignKey('agent.user_id'))
     house_id = db.Column(db.BINARY(16), db.ForeignKey('houses.house_id'))
-    day_of_the_week = db.Column(db.Integer)  # 0-Sunday, 1-Monday, etc.
+    day_of_the_week = db.Column(db.Integer)  # 0-Monday, 1-Tuesday etc.
     start_time = db.Column(db.Time)
     end_time = db.Column(db.Time)
+    is_recurring = db.Column(db.Boolean)
+    available_date = db.Column(db.Date)
 
 
 class Appointment(db.Model):
@@ -123,7 +122,6 @@ class Appointment(db.Model):
     house_id = db.Column(db.BINARY(16), db.ForeignKey('houses.house_id'))
     user_id = db.Column(db.BINARY(16), db.ForeignKey('users.user_id'))
     date = db.Column(db.Date)
-    day_of_the_week = db.Column(db.Integer)  # 0-Sunday, 1-Monday, etc.
     start_time = db.Column(db.Time)
     end_time = db.Column(db.Time)
     name = db.Column(db.Text)

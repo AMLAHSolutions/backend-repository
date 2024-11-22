@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from flask import Blueprint, jsonify, request
 from sqlalchemy.exc import IntegrityError
@@ -17,6 +17,8 @@ GET:
     /houses/search?: returns houses based on the passed parameters:
         /houses/search?type=[rentals/for_sale]&property_type=[type_of_home]&city=[city_name]&price_min=[min]&price_max=[max]
     /users/saved?user_id=<id>: returns all saved houses by the specified user
+    /houses/availability?house_id=<id>: returns availability information about the given house
+        Each house has 7 entries in the availability table, one for each day of the week. A GET should return all availability for that house
 POST:
     /houses: create a house based on the passed JSON object
         must specify "type" which can be "rentals" or "for_sale" in the passed JSON
@@ -24,6 +26,7 @@ POST:
         must specify "user_type" which can be "client" or "agent" in the passed JSON
     /users/saved: create a saved house based on passed JSON object
         must at least specify a user_id, house_id, and name but more fields present in models.py
+    /houses/availability?house_id=<id>
 DELETE:
     /houses?house_id=<id>: deletes the house based on passed query parameter
     /user?user_id=<id>: deletes the user based on passed query parameter
@@ -35,6 +38,371 @@ DELETE:
 # user authentication can be tied back to the user_id and that's how we can query
 # when a user creates an account/user logs in, we'll have some session management keeping track
 # need to be careful that the UUID is stored within the session
+
+# GENERAL TO DOS:
+#   - check all routes and make sure that all necessary fields are being passed
+#   -
+
+# TO DO: All of these routes need thorough testing and documentation
+@bp.route('/houses/appointment', methods=['GET', 'POST', 'DELETE'])
+def house_appointment():
+    # fetches app appointments for a specified user_id. Probably want to implement this for a given house_id as well
+    if request.method == 'GET':
+        user_id_str = request.args.get('user_id')
+
+        try:
+            user_id = uuid.UUID(user_id_str).bytes  # Ensure user_id is valid
+        except ValueError:
+            return jsonify({
+                'success': False,
+                'message': 'Invalid user_id format.',
+                'data': None
+            }), 400
+
+        # Retrieve appointments for the user
+        appointments = Appointment.query.filter_by(user_id=user_id).all()
+
+        appointment_data = []
+        for appointment in appointments:
+            appointment_data.append({
+                'house_id': str(uuid.UUID(bytes=appointment.house_id)),
+                'date': appointment.date.isoformat(),
+                'start_time': appointment.start_time.strftime("%H:%M:%S"),
+                'end_time': appointment.end_time.strftime("%H:%M:%S"),
+                'description': appointment.description,
+                'name': appointment.name
+            })
+
+        return jsonify({
+            'success': True,
+            'message': 'Successfully returned appointment data',
+            'data': appointment_data
+        }), 200
+
+    elif request.method == 'POST':
+        data = request.get_json()
+
+        # Ensure required fields are provided
+        if not all(key in data for key in ['user_id', 'house_id', 'date', 'start_time']):
+            return jsonify({
+                'success': False,
+                'message': 'Missing required fields.',
+                'data': None
+            }), 400
+
+        try:
+            user_id = uuid.UUID(data['user_id']).bytes
+            house_id = uuid.UUID(data['house_id']).bytes
+            appointment_date = datetime.fromisoformat(data['date'])  # Ensure date is valid
+            start_time = datetime.strptime(data['start_time'], "%H:%M:%S")  # Format to match input
+
+            # Set end_time to 15 minutes after start_time
+            end_time = start_time + timedelta(minutes=15)
+
+        except ValueError:
+            return jsonify({
+                'success': False,
+                'message': 'Invalid input format.',
+                'data': None
+            }), 400
+
+        # Create a new appointment instance
+        appointment_id = uuid.uuid4().bytes
+        new_appointment = Appointment(
+            appt_id=appointment_id,
+            user_id=user_id,
+            house_id=house_id,
+            date=appointment_date,
+            start_time=start_time.time(),  # Store only the time part
+            end_time=end_time.time(),  # Store only the time part
+            description=data.get('description', '')  # Optional description
+        )
+
+        # Add the appointment to the session and commit
+        try:
+            db.session.add(new_appointment)
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({
+                'success': False,
+                'message': 'Failed to create appointment.',
+                'data': str(e)
+            }), 500
+
+        return jsonify({'success': True, 'message': 'Appointment created successfully!'}), 201
+
+    elif request.method == 'DELETE':
+        user_id_str = request.args.get('user_id')
+        house_id_str = request.args.get('house_id')
+        date_str = request.args.get('date')  # Date should be in YYYY-MM-DD format
+
+        try:
+            user_id = uuid.UUID(user_id_str).bytes
+            house_id = uuid.UUID(house_id_str).bytes
+            appointment_date = datetime.fromisoformat(date_str).date()  # Validate date format
+
+            # Find and delete the appointment
+            appointment = Appointment.query.filter_by(
+                user_id=user_id,
+                house_id=house_id,
+                date=appointment_date
+            ).first()
+
+            if not appointment:
+                return jsonify({
+                    'success': False,
+                    'message': 'Appointment not found.',
+                    'data': None
+                }), 404
+
+            db.session.delete(appointment)
+            db.session.commit()
+
+            return jsonify({'success': True, 'message': 'Appointment deleted successfully!'}), 200
+
+        except ValueError:
+            return jsonify({'success': False, 'message': 'Invalid input format.', 'data': None}), 400
+
+
+
+# gets the availability for the next 'days' days. User can specify the number of days to retrieve
+@bp.route('/houses/availability', methods=['GET', 'POST', 'DELETE'])
+def house_availability():
+    if request.method == "GET":
+        house_id_str = request.args.get('house_id')
+        date_str = request.args.get('date')
+        num_days = int(request.args.get('days'))
+
+        if num_days <= 0:
+            return jsonify({
+                'success': False,
+                'message': 'Please specify a positive number of days.'
+            }), 400
+
+        # Validate house_id format
+        try:
+            house_id = uuid.UUID(house_id_str).bytes
+        except ValueError:
+            return jsonify({
+                'success': False,
+                'message': 'Invalid house_id format.',
+                'data': None
+            }), 400
+
+        try:
+            start_date = datetime.fromisoformat(date_str).date()
+        except ValueError:
+            return jsonify({
+                'success': False,
+                'message': 'Invalid date format. Use YYYY-MM-DD.',
+                'data': None
+            }), 400
+
+        end_date = start_date + timedelta(days=num_days)
+
+        availability_results = {}
+
+        availability = ListingAvailability.query.filter_by(house_id=house_id)
+        appointments = Appointment.query.filter_by(house_id=house_id).filter(Appointment.date >= start_date, Appointment.date < end_date)
+
+        for x in range((end_date - start_date).days):
+            # calculate the date using the start date and the number of
+            cur_date = start_date + timedelta(days=x)
+            apts_today = appointments.filter_by(date=cur_date).all()
+            apts = []
+            for apt in apts_today:
+                apts.append(datetime.combine(cur_date, apt.start_time))
+            time_blocks = []
+            non_recurring = availability.filter_by(available_date=cur_date).first()
+            if not non_recurring:
+
+                # if the entry is recurring, calculate the day offset and then use that to find the target_date
+                # we call datetime.weekday() here: "Return the day of the week as an integer, where Monday is 0 and Sunday is 6."
+                av = availability.filter_by(day_of_the_week=cur_date.weekday()).first()
+
+                start_time = datetime.combine(cur_date, av.start_time)
+                end_time = datetime.combine(cur_date, av.end_time)
+                while start_time < end_time:
+                    time_blocks.append(start_time.strftime("%H:%M Booked" if start_time in apts else "%H:%M Free"))
+                    start_time += timedelta(minutes=15)
+                availability_results[cur_date.isoformat()] = time_blocks
+            else:
+                start_time = datetime.combine(cur_date, non_recurring.start_time)
+                end_time = datetime.combine(cur_date, non_recurring.end_time)
+                while start_time < end_time:
+                    time_blocks.append(start_time.strftime("%H:%M Booked" if start_time in apts else "%H:%M Free"))
+                    start_time += timedelta(minutes=15)
+                availability_results[cur_date.isoformat()] = time_blocks
+
+        # Return the ordered JSON response
+        return jsonify({
+            'success': True,
+            'data': availability_results
+        }), 200
+    elif request.method == "POST":
+        data = request.json
+
+        # Required fields
+        house_id_str = data.get('house_id')
+        is_recurring = data.get('is_recurring')
+
+        if not is_recurring:
+            return jsonify({
+                'success': False,
+                'message': "Missing required fields"
+            }), 400
+
+        # Validate house_id format
+        try:
+            house_id = uuid.UUID(house_id_str).bytes
+        except ValueError:
+            return jsonify({
+                'success': False,
+                'message': 'Invalid house_id format.',
+                'data': None
+            }), 400
+
+        # Check if it's recurring or standalone
+        if is_recurring:
+            # Required for a recurring entry
+            day_of_the_week = data.get('day_of_the_week')  # Should be an integer (0-Monday, 1-Sunday, etc...)
+            start_time = data.get('start_time')  # Should be in HH:MM:SS
+            end_time = data.get('end_time')  # Should be in HH:MM:SS
+
+            if not day_of_the_week or not start_time or not end_time:
+                return jsonify({
+                    'success': False,
+                    'message': "Missing required fields"
+                }), 400
+
+            # Find existing recurring availability
+            availability = ListingAvailability.query.filter_by(house_id=house_id, is_recurring=True,
+                                                               day_of_the_week=day_of_the_week).first()
+
+            if availability:
+                # Update existing availability
+                availability.start_time = start_time
+                availability.end_time = end_time
+                db.session.commit()
+                return jsonify({
+                    'success': True,
+                    'message': 'Recurring availability updated successfully.',
+                    'data': None
+                }), 200
+            else:
+                # Create new recurring availability
+                pattern_id = uuid.uuid4().bytes
+                new_availability = ListingAvailability(
+                    pattern_id=pattern_id,
+                    house_id=house_id,
+                    day_of_the_week=day_of_the_week,
+                    start_time=start_time,
+                    end_time=end_time,
+                    is_recurring=True
+                )
+                db.session.add(new_availability)
+                db.session.commit()
+                return jsonify({
+                    'success': True,
+                    'message': 'Recurring availability added successfully.',
+                    'data': None
+                }), 201
+
+        else:
+            # Non-recurring availability requires available_date
+            available_date_str = data.get('available_date')  # Should be in YYYY-MM-DD format
+            start_time = data.get('start_time')  # Should be in HH:MM:SS
+            end_time = data.get('end_time')  # Should be in HH:MM:SS
+
+            if not available_date_str or not start_time or not end_time:
+                return jsonify({
+                    'success': False,
+                    'message': "Missing required fields"
+                }), 400
+
+            # Check for existing non-recurring availability
+            availability = ListingAvailability.query.filter_by(house_id=house_id,
+                                                               available_date=available_date_str,
+                                                               is_recurring=False).first()
+
+            if availability:
+                # Update existing non-recurring availability
+                availability.start_time = start_time
+                availability.end_time = end_time
+                db.session.commit()
+                return jsonify({
+                    'success': True,
+                    'message': 'Non-recurring availability updated successfully.',
+                    'data': None
+                }), 200
+            else:
+                # Create new non-recurring availability
+                pattern_id = uuid.uuid4().bytes
+                new_availability = ListingAvailability(
+                    pattern_id=pattern_id,
+                    house_id=house_id,
+                    available_date=available_date_str,
+                    start_time=start_time,
+                    end_time=end_time,
+                    is_recurring=False
+                )
+                db.session.add(new_availability)
+                db.session.commit()
+                return jsonify({
+                    'success': True,
+                    'message': 'Non-recurring availability added successfully.',
+                    'data': None
+                }), 201
+    # deletes non recurring listing availability
+    elif request.method == 'DELETE':
+        house_id_str = request.args.get('house_id')
+        date_str = request.args.get('date')
+
+        try:
+            house_id = uuid.UUID(house_id_str).bytes
+        except ValueError:
+            return jsonify({
+                'success': False,
+                'message': 'Invalid house_id format.',
+                'data': None
+            }), 400
+
+        try:
+            date = datetime.fromisoformat(date_str).date()
+        except ValueError:
+            return jsonify({
+                'success': False,
+                'message': 'Invalid date format. Use YYYY-MM-DD.',
+                'data': None
+            }), 400
+
+        # Check if the listing availability exists
+        listing = ListingAvailability.query.filter_by(house_id=house_id, available_date=date).first()
+        if not listing:
+            return jsonify({
+                'success': False,
+                'message': 'No availability found for that date.',
+                'data': None
+            }), 404
+
+        try:
+            db.session.delete(listing)
+            db.session.commit()
+        except:
+            db.session.rollback()
+            return jsonify({
+                'success': False,
+                'message': 'Failed to delete listing.',
+                'data': None
+            }), 500
+        return jsonify({
+            'success': True,
+            'message': 'Listing deleted successfully!',
+            'data': None
+        }), 200
+
+
 
 
 
@@ -166,10 +534,6 @@ def saved_houses():
             'message': 'Saved house entry deleted successfully!',
             'data': None
         }), 200
-
-
-
-
 
 
 @bp.route('/houses', methods=['GET', 'POST', 'DELETE'])
@@ -441,8 +805,6 @@ def get_clients():
         'success': True,
         'data': client_data
     }), 200
-
-
 
 
 # retrieves all user information based on user_id. Additionally returns information from the client or agent tables.
