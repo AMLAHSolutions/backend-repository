@@ -9,33 +9,6 @@ import uuid
 bp = Blueprint('app', __name__)
 
 """
-GET:
-    /users/agents: returns all agents
-    /users/clients: returns all clients
-    /users/id?user_id=<id>: returns user specified by user_id
-    /houses/id?house_id=<id>: returns information on the house based on the passed id
-    /houses/search?: returns houses based on the passed parameters:
-        /houses/search?type=[rentals/for_sale]&property_type=[type_of_home]&city=[city_name]&price_min=[min]&price_max=[max]
-    /users/saved?user_id=<id>: returns all saved houses by the specified user
-    /houses/availability?house_id=<id>: returns availability information about the given house
-        Each house has 7 entries in the availability table, one for each day of the week. A GET should return all availability for that house
-POST:
-    /houses: create a house based on the passed JSON object
-        must specify "type" which can be "rentals" or "for_sale" in the passed JSON
-    /users: create a user based on the passed JSON object
-        must specify "user_type" which can be "client" or "agent" in the passed JSON
-    /users/saved: create a saved house based on passed JSON object
-        must at least specify a user_id, house_id, and name but more fields present in models.py
-    /houses/availability?house_id=<id>
-DELETE:
-    /houses?house_id=<id>: deletes the house based on passed query parameter
-    /user?user_id=<id>: deletes the user based on passed query parameter
-    /users/saved?user_id=<id>&house_id=<id>: deletes the house_id from the user's saved collection
-"""
-
-# Q For Brian:
-
-"""
 Formats: ALL DATES (YYYY-MM-DD). ALL TIMES (HH:MM:SS)
 
 Appointments (/houses/appointment):
@@ -75,11 +48,28 @@ Houses (/houses)
     - POST: Takes in a JSON object. Required fields are 'type' (either "rental" or "for_sale"), 'street', 'city', 'user_id',
             'zipcode', 'country', 'description', 'HOA', and 'name'. Will create a new house with the specified attributes.
             Returns the house_id of the newly created house.
+
+Agents (/users/agents)
+    - GET: Retrieves all agents
+
+Clients (/users/clients)
+    - GET: Retrieves all clients
+    
+Users (/users) 
+    - GET: Takes in 1 query parameter: 'user_id'. Retrieves all information about that user.
+    - POST: Takes in a JSON object. Required fields are 'email', 'first_name', and 'last_name'. Creates a user with the 
+            specified information.
+    - DELETE: Takes in 1 query parameter: 'user_id'. Deletes from the database the user associated with that user_id.
+    
+Search (/houses/search)
+    - GET: Takes in 5 query parameters: 'type', 'property_type', 'city', 'price_min', and 'price_max'. 'type' is  
+           required and must be either 'rental' or 'for_sale'. Returns JSON of all houses matching the criteria specified.
 """
 
 # TO DO: What to do when someone wants to delete/change availability of a house that has appointments scheduled?
 # TO DO: On a similar note, we need to think about what interactions change with appointment and availability. For example, when a listing is removed, we should get rid of all appointments and all listings. Same when deleting a user.
-# TO DO: Switch over data model to prevent deletion. Add a field for "status" which lets us know about active, sold, rented properties
+# TO DO: Switch over data model to prevent deletion. Add a field for "status" which lets us know about active, sold, rented properties.
+# TO DO: Pagination for search routes
 
 # currently allows for appointments to be made on times that aren't available for the listing
 @bp.route('/houses/appointment', methods=['GET', 'POST', 'DELETE'])
